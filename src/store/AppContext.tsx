@@ -1,6 +1,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -26,19 +27,16 @@ import {
   previousCycle as buildPrev,
 } from '../utils/cycles'
 import { computeIncome } from '../utils/income'
-import {
-  accounts as mockAccounts,
-  categories as mockCategories,
-  fixedExpenses as mockFixedExpenses,
-  household as mockHousehold,
-  incomeSources as mockIncomeSources,
-  investments as mockInvestments,
-  makeSampleInstallments,
-  sampleExpensesFor,
-  scenarios as mockScenarios,
-} from '../data/mockData'
+import * as db from '../lib/db'
 
 const uid = () => crypto.randomUUID()
+
+function persist(p: Promise<void>) {
+  p.catch((e: unknown) => {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('Erro ao salvar no Supabase:', msg)
+  })
+}
 
 /** Converte as rendas recorrentes ativas em lançamentos de um ciclo (snapshot). */
 function seedIncomesForCycle(
@@ -59,7 +57,7 @@ function seedIncomesForCycle(
         cycleId: cycle.id,
         sourceId: s.id,
         name: s.name,
-        amount: net, // renda do ciclo = líquido
+        amount: net,
         gross: s.amount,
         taxPercent: s.taxPercent,
         discount: s.discount,
@@ -68,11 +66,10 @@ function seedIncomesForCycle(
     })
 }
 
-/** Monta a lista inicial de ciclos: 6 passados, o atual e 12 futuros (projeção). */
+/** Monta a lista de ciclos: 6 passados, o atual e 12 futuros (projeção). */
 function buildInitialCycles(closingDay: number): Cycle[] {
   const current = buildCycleForDate(new Date(), closingDay)
   const cycles: Cycle[] = [current]
-
   let prev = current
   for (let i = 0; i < 6; i++) {
     prev = buildPrev(prev)
@@ -83,11 +80,9 @@ function buildInitialCycles(closingDay: number): Cycle[] {
     nxt = buildNext(nxt)
     cycles.push(nxt)
   }
-
   return cycles
 }
 
-/** Converte os custos fixos ativos em gastos do ciclo. */
 function deriveFixed(cycle: Cycle, fixed: FixedExpense[]): DisplayExpense[] {
   return fixed
     .filter((f) => f.active)
@@ -102,7 +97,6 @@ function deriveFixed(cycle: Cycle, fixed: FixedExpense[]): DisplayExpense[] {
     }))
 }
 
-/** Gera as parcelas que caem neste ciclo. */
 function deriveInstallments(
   cycle: Cycle,
   cycleIndex: number,
@@ -136,6 +130,7 @@ function deriveInstallments(
 interface AppState {
   household: Household
   categories: Category[]
+  accounts: Account[]
   incomeSources: IncomeSource[]
   cycles: Cycle[]
   cycleIncomes: Record<string, CycleIncome[]>
@@ -146,53 +141,38 @@ interface AppState {
   scenarios: Scenario[]
   selectedCycleId: string
 
-  // navegação de ciclos
   selectCycle: (id: string) => void
   goPrevCycle: () => void
   goNextCycle: () => void
 
-  /** Gastos exibidos de um ciclo: manuais + fixos + parcelas. */
   getCycleExpenses: (cycleId: string) => DisplayExpense[]
 
-  // gastos manuais
   addExpense: (e: Omit<Expense, 'id'>) => void
   deleteExpense: (id: string) => void
 
-  // custos fixos
   addFixedExpense: (f: Omit<FixedExpense, 'id'>) => void
   updateFixedExpense: (f: FixedExpense) => void
   deleteFixedExpense: (id: string) => void
 
-  // compras parceladas
   addInstallment: (i: Omit<Installment, 'id'>) => void
   deleteInstallment: (id: string) => void
 
-  // investimentos
   addInvestment: (i: Omit<Investment, 'id'>) => void
   updateInvestment: (i: Investment) => void
   deleteInvestment: (id: string) => void
 
-  // rendas do ciclo
-  addCycleIncome: (cycleId: string, income: Omit<CycleIncome, 'id' | 'cycleId'>) => void
-  deleteCycleIncome: (cycleId: string, id: string) => void
-
-  // rendas recorrentes (template)
   addIncomeSource: (s: Omit<IncomeSource, 'id'>) => void
   updateIncomeSource: (s: IncomeSource) => void
   deleteIncomeSource: (id: string) => void
 
-  // cenários
   addScenario: (name: string) => string
   updateScenario: (id: string, patch: Partial<Pick<Scenario, 'name' | 'notes'>>) => void
   deleteScenario: (id: string) => void
   addScenarioItem: (scenarioId: string, item: Omit<ScenarioItem, 'id'>) => void
   deleteScenarioItem: (scenarioId: string, itemId: string) => void
 
-  // configurações da casa
   updateHousehold: (patch: Partial<Household>) => void
 
-  // cartões/bancos
-  accounts: Account[]
   addAccount: (name: string) => void
   updateAccount: (a: Account) => void
   deleteAccount: (id: string) => void
@@ -201,74 +181,91 @@ interface AppState {
 const Ctx = createContext<AppState | null>(null)
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [household, setHousehold] = useState<Household>(mockHousehold)
-  const [categories] = useState<Category[]>(mockCategories)
-  const [accounts, setAccounts] = useState<Account[]>(mockAccounts)
-  const [incomeSources, setIncomeSources] =
-    useState<IncomeSource[]>(mockIncomeSources)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [householdId, setHouseholdId] = useState<string | null>(null)
 
-  const [cycles] = useState<Cycle[]>(() =>
-    buildInitialCycles(mockHousehold.closingDay),
+  const [household, setHousehold] = useState<Household | null>(null)
+  const [categories, setCategories] = useState<Category[]>([])
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [incomeSources, setIncomeSources] = useState<IncomeSource[]>([])
+  const [fixedExpenses, setFixedExpenses] = useState<FixedExpense[]>([])
+  const [installments, setInstallments] = useState<Installment[]>([])
+  const [investments, setInvestments] = useState<Investment[]>([])
+  const [scenarios, setScenarios] = useState<Scenario[]>([])
+  const [expenses, setExpenses] = useState<Expense[]>([])
+  const [selectedCycleId, setSelectedCycleId] = useState<string>('')
+
+  // ---- carga inicial ----
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const hid = await db.getHouseholdId()
+        if (!hid) {
+          setError(
+            'Seu login não está ligado a nenhuma casa. Rode o supabase/seed.sql.',
+          )
+          setLoading(false)
+          return
+        }
+        const data = await db.loadEverything(hid)
+        if (cancelled) return
+        setHouseholdId(hid)
+        setHousehold(data.household)
+        setCategories(data.categories)
+        setAccounts(data.accounts)
+        setIncomeSources(data.incomeSources)
+        setFixedExpenses(data.fixedExpenses)
+        setInstallments(data.installments)
+        setInvestments(data.investments)
+        setScenarios(data.scenarios)
+        setExpenses(data.expenses)
+        setLoading(false)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        console.error('Erro ao carregar:', msg)
+        if (!cancelled) {
+          setError('Não consegui carregar os dados do Supabase.')
+          setLoading(false)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const cycles = useMemo(
+    () => (household ? buildInitialCycles(household.closingDay) : []),
+    [household],
   )
-
-  // Id e índice do ciclo atual (o que contém a data de hoje).
   const currentCycleId = useMemo(
-    () => buildCycleForDate(new Date(), mockHousehold.closingDay).id,
-    [],
+    () => (household ? buildCycleForDate(new Date(), household.closingDay).id : ''),
+    [household],
   )
-  const currentIndex = cycles.findIndex((c) => c.id === currentCycleId)
+  useEffect(() => {
+    if (currentCycleId && !selectedCycleId) setSelectedCycleId(currentCycleId)
+  }, [currentCycleId, selectedCycleId])
 
-  // Rendas de cada ciclo: todas já vêm "lançadas" a partir do template (virada automática).
-  const [cycleIncomes, setCycleIncomes] = useState<
-    Record<string, CycleIncome[]>
-  >(() => {
+  const cycleIncomes = useMemo(() => {
     const map: Record<string, CycleIncome[]> = {}
-    for (const c of cycles) map[c.id] = seedIncomesForCycle(c, mockIncomeSources)
+    for (const c of cycles) map[c.id] = seedIncomesForCycle(c, incomeSources)
     return map
-  })
-
-  // Gastos manuais de exemplo: no ciclo atual e nos 2 anteriores.
-  const [expenses, setExpenses] = useState<Expense[]>(() => {
-    const start = Math.max(0, currentIndex - 2)
-    const recent = cycles.slice(start, currentIndex + 1)
-    return recent.flatMap((c, i) => sampleExpensesFor(c.id, c.startDate, i + 1))
-  })
-
-  const [fixedExpenses, setFixedExpenses] =
-    useState<FixedExpense[]>(mockFixedExpenses)
-
-  const [installments, setInstallments] = useState<Installment[]>(() =>
-    makeSampleInstallments(
-      cycles[currentIndex].id,
-      cycles[currentIndex + 1]?.id ?? cycles[currentIndex].id,
-    ),
-  )
-
-  const [investments, setInvestments] =
-    useState<Investment[]>(mockInvestments)
-
-  const [scenarios, setScenarios] = useState<Scenario[]>(mockScenarios)
-
-  // Por padrão seleciona o ciclo atual.
-  const [selectedCycleId, setSelectedCycleId] =
-    useState<string>(currentCycleId)
+  }, [cycles, incomeSources])
 
   const api = useMemo<AppState>(() => {
-    const selectCycle = (id: string) => setSelectedCycleId(id)
+    const hid = householdId ?? ''
 
+    const selectCycle = (id: string) => setSelectedCycleId(id)
     const goPrevCycle = () => {
       const idx = cycles.findIndex((c) => c.id === selectedCycleId)
       if (idx > 0) setSelectedCycleId(cycles[idx - 1].id)
     }
     const goNextCycle = () => {
       const idx = cycles.findIndex((c) => c.id === selectedCycleId)
-      if (idx < cycles.length - 1) setSelectedCycleId(cycles[idx + 1].id)
+      if (idx >= 0 && idx < cycles.length - 1) setSelectedCycleId(cycles[idx + 1].id)
     }
-
-    const addExpense = (e: Omit<Expense, 'id'>) =>
-      setExpenses((prev) => [...prev, { ...e, id: uid() }])
-    const deleteExpense = (id: string) =>
-      setExpenses((prev) => prev.filter((x) => x.id !== id))
 
     const getCycleExpenses = (cycleId: string): DisplayExpense[] => {
       const idx = cycles.findIndex((c) => c.id === cycleId)
@@ -284,95 +281,129 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ]
     }
 
-    const addFixedExpense = (f: Omit<FixedExpense, 'id'>) =>
-      setFixedExpenses((prev) => [...prev, { ...f, id: uid() }])
-    const updateFixedExpense = (f: FixedExpense) =>
-      setFixedExpenses((prev) => prev.map((x) => (x.id === f.id ? f : x)))
-    const deleteFixedExpense = (id: string) =>
-      setFixedExpenses((prev) => prev.filter((x) => x.id !== id))
+    const addExpense = (e: Omit<Expense, 'id'>) => {
+      const row = { ...e, id: uid() }
+      setExpenses((p) => [...p, row])
+      persist(db.insertExpense(row, hid))
+    }
+    const deleteExpense = (id: string) => {
+      setExpenses((p) => p.filter((x) => x.id !== id))
+      persist(db.deleteExpense(id))
+    }
 
-    const addInstallment = (i: Omit<Installment, 'id'>) =>
-      setInstallments((prev) => [...prev, { ...i, id: uid() }])
-    const deleteInstallment = (id: string) =>
-      setInstallments((prev) => prev.filter((x) => x.id !== id))
+    const addFixedExpense = (f: Omit<FixedExpense, 'id'>) => {
+      const row = { ...f, id: uid() }
+      setFixedExpenses((p) => [...p, row])
+      persist(db.insertFixed(row, hid))
+    }
+    const updateFixedExpense = (f: FixedExpense) => {
+      setFixedExpenses((p) => p.map((x) => (x.id === f.id ? f : x)))
+      persist(db.updateFixed(f))
+    }
+    const deleteFixedExpense = (id: string) => {
+      setFixedExpenses((p) => p.filter((x) => x.id !== id))
+      persist(db.deleteFixed(id))
+    }
 
-    const addInvestment = (i: Omit<Investment, 'id'>) =>
-      setInvestments((prev) => [...prev, { ...i, id: uid() }])
-    const updateInvestment = (i: Investment) =>
-      setInvestments((prev) => prev.map((x) => (x.id === i.id ? i : x)))
-    const deleteInvestment = (id: string) =>
-      setInvestments((prev) => prev.filter((x) => x.id !== id))
+    const addInstallment = (i: Omit<Installment, 'id'>) => {
+      const row = { ...i, id: uid() }
+      setInstallments((p) => [...p, row])
+      persist(db.insertInstallment(row, hid))
+    }
+    const deleteInstallment = (id: string) => {
+      setInstallments((p) => p.filter((x) => x.id !== id))
+      persist(db.deleteInstallment(id))
+    }
 
-    const addCycleIncome = (
-      cycleId: string,
-      income: Omit<CycleIncome, 'id' | 'cycleId'>,
-    ) =>
-      setCycleIncomes((prev) => ({
-        ...prev,
-        [cycleId]: [
-          ...(prev[cycleId] ?? []),
-          { ...income, id: uid(), cycleId },
-        ],
-      }))
-    const deleteCycleIncome = (cycleId: string, id: string) =>
-      setCycleIncomes((prev) => ({
-        ...prev,
-        [cycleId]: (prev[cycleId] ?? []).filter((x) => x.id !== id),
-      }))
+    const addInvestment = (i: Omit<Investment, 'id'>) => {
+      const row = { ...i, id: uid() }
+      setInvestments((p) => [...p, row])
+      persist(db.insertInvestment(row, hid))
+    }
+    const updateInvestment = (i: Investment) => {
+      setInvestments((p) => p.map((x) => (x.id === i.id ? i : x)))
+      persist(db.updateInvestment(i))
+    }
+    const deleteInvestment = (id: string) => {
+      setInvestments((p) => p.filter((x) => x.id !== id))
+      persist(db.deleteInvestment(id))
+    }
 
-    const addIncomeSource = (s: Omit<IncomeSource, 'id'>) =>
-      setIncomeSources((prev) => [...prev, { ...s, id: uid() }])
-    const updateIncomeSource = (s: IncomeSource) =>
-      setIncomeSources((prev) => prev.map((x) => (x.id === s.id ? s : x)))
-    const deleteIncomeSource = (id: string) =>
-      setIncomeSources((prev) => prev.filter((x) => x.id !== id))
+    const addIncomeSource = (s: Omit<IncomeSource, 'id'>) => {
+      const row = { ...s, id: uid() }
+      setIncomeSources((p) => [...p, row])
+      persist(db.insertIncome(row, hid))
+    }
+    const updateIncomeSource = (s: IncomeSource) => {
+      setIncomeSources((p) => p.map((x) => (x.id === s.id ? s : x)))
+      persist(db.updateIncome(s))
+    }
+    const deleteIncomeSource = (id: string) => {
+      setIncomeSources((p) => p.filter((x) => x.id !== id))
+      persist(db.deleteIncome(id))
+    }
 
     const addScenario = (name: string) => {
-      const id = uid()
-      setScenarios((prev) => [...prev, { id, name, notes: '', items: [] }])
-      return id
+      const row: Scenario = { id: uid(), name, notes: '', items: [] }
+      setScenarios((p) => [...p, row])
+      persist(db.insertScenario(row, hid))
+      return row.id
     }
     const updateScenario = (
       id: string,
       patch: Partial<Pick<Scenario, 'name' | 'notes'>>,
-    ) =>
-      setScenarios((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, ...patch } : s)),
-      )
-    const deleteScenario = (id: string) =>
-      setScenarios((prev) => prev.filter((s) => s.id !== id))
+    ) => {
+      setScenarios((p) => p.map((s) => (s.id === id ? { ...s, ...patch } : s)))
+      persist(db.updateScenario(id, patch))
+    }
+    const deleteScenario = (id: string) => {
+      setScenarios((p) => p.filter((s) => s.id !== id))
+      persist(db.deleteScenario(id))
+    }
     const addScenarioItem = (
       scenarioId: string,
       item: Omit<ScenarioItem, 'id'>,
-    ) =>
-      setScenarios((prev) =>
-        prev.map((s) =>
-          s.id === scenarioId
-            ? { ...s, items: [...s.items, { ...item, id: uid() }] }
-            : s,
+    ) => {
+      const full: ScenarioItem = { ...item, id: uid() }
+      setScenarios((p) =>
+        p.map((s) =>
+          s.id === scenarioId ? { ...s, items: [...s.items, full] } : s,
         ),
       )
-    const deleteScenarioItem = (scenarioId: string, itemId: string) =>
-      setScenarios((prev) =>
-        prev.map((s) =>
+      persist(db.insertScenarioItem(scenarioId, full))
+    }
+    const deleteScenarioItem = (scenarioId: string, itemId: string) => {
+      setScenarios((p) =>
+        p.map((s) =>
           s.id === scenarioId
             ? { ...s, items: s.items.filter((i) => i.id !== itemId) }
             : s,
         ),
       )
+      persist(db.deleteScenarioItem(itemId))
+    }
 
-    const updateHousehold = (patch: Partial<Household>) =>
-      setHousehold((prev) => ({ ...prev, ...patch }))
+    const updateHousehold = (patch: Partial<Household>) => {
+      setHousehold((prev) => (prev ? { ...prev, ...patch } : prev))
+      persist(db.updateHousehold(hid, patch))
+    }
 
-    const addAccount = (name: string) =>
-      setAccounts((prev) => [...prev, { id: uid(), name }])
-    const updateAccount = (a: Account) =>
-      setAccounts((prev) => prev.map((x) => (x.id === a.id ? a : x)))
-    const deleteAccount = (id: string) =>
-      setAccounts((prev) => prev.filter((x) => x.id !== id))
+    const addAccount = (name: string) => {
+      const row: Account = { id: uid(), name }
+      setAccounts((p) => [...p, row])
+      persist(db.insertAccount(row, hid))
+    }
+    const updateAccount = (a: Account) => {
+      setAccounts((p) => p.map((x) => (x.id === a.id ? a : x)))
+      persist(db.updateAccount(a))
+    }
+    const deleteAccount = (id: string) => {
+      setAccounts((p) => p.filter((x) => x.id !== id))
+      persist(db.deleteAccount(id))
+    }
 
     return {
-      household,
+      household: household!,
       categories,
       accounts,
       incomeSources,
@@ -398,8 +429,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addInvestment,
       updateInvestment,
       deleteInvestment,
-      addCycleIncome,
-      deleteCycleIncome,
       addIncomeSource,
       updateIncomeSource,
       deleteIncomeSource,
@@ -414,6 +443,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteAccount,
     }
   }, [
+    householdId,
     household,
     categories,
     accounts,
@@ -428,6 +458,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     selectedCycleId,
   ])
 
+  if (loading) {
+    return (
+      <div className="grid min-h-full place-items-center text-slate-400">
+        Carregando seus dados…
+      </div>
+    )
+  }
+  if (error || !household) {
+    return (
+      <div className="mx-auto grid min-h-full max-w-sm place-items-center px-6 text-center">
+        <div>
+          <p className="text-3xl">⚠️</p>
+          <p className="mt-2 text-sm text-slate-600">{error ?? 'Erro.'}</p>
+        </div>
+      </div>
+    )
+  }
+
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>
 }
 
@@ -436,8 +484,6 @@ export function useApp(): AppState {
   if (!ctx) throw new Error('useApp deve ser usado dentro de <AppProvider>')
   return ctx
 }
-
-// ---- Seletores utilitários ----
 
 export function useSelectedCycle(): Cycle {
   const { cycles, selectedCycleId } = useApp()

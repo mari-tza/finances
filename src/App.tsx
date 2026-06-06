@@ -1,6 +1,8 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { AuthProvider, useAuth } from './auth/AuthContext'
 import { AppProvider } from './store/AppContext'
 import { Layout } from './components/Layout'
+import { LoginPage } from './pages/LoginPage'
 import { Dashboard } from './pages/Dashboard'
 import { CyclePage } from './pages/CyclePage'
 import { IncomesPage } from './pages/IncomesPage'
@@ -11,6 +13,26 @@ import { ScenariosPage } from './pages/ScenariosPage'
 import { ConfigPage } from './pages/ConfigPage'
 
 export default function App() {
+  return (
+    <AuthProvider>
+      <Gate />
+    </AuthProvider>
+  )
+}
+
+function Gate() {
+  const { session, loading } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="grid min-h-full place-items-center text-slate-400">
+        Carregando…
+      </div>
+    )
+  }
+
+  if (!session) return <LoginPage />
+
   return (
     <AppProvider>
       <BrowserRouter>

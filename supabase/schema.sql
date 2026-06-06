@@ -67,16 +67,17 @@ create table cycle_incomes (
 );
 
 create table expenses (
-  id          uuid primary key default gen_random_uuid(),
-  cycle_id    uuid not null references cycles(id) on delete cascade,
-  description text not null,
-  amount      numeric(12,2) not null,
-  category_id uuid references categories(id) on delete set null,
-  date        date not null,
-  account_id  uuid references accounts(id) on delete set null,   -- cartão/banco
-  import_hash text,                        -- dedupe de fatura importada (data+nome+valor+cartão)
-  asset_id    uuid,                        -- bem vinculado (FK adicionada após 'investments')
-  created_at  timestamptz not null default now()
+  id           uuid primary key default gen_random_uuid(),
+  household_id uuid not null references households(id) on delete cascade,
+  cycle_id     text not null,              -- id do ciclo (calculado no app), ex.: 'cycle-2026-08-05'
+  description  text not null,
+  amount       numeric(12,2) not null,
+  category_id  uuid references categories(id) on delete set null,
+  date         date not null,
+  account_id   uuid references accounts(id) on delete set null,   -- cartão/banco
+  import_hash  text,                       -- dedupe de fatura importada (data+nome+valor+cartão)
+  asset_id     uuid,                       -- bem vinculado (FK adicionada após 'investments')
+  created_at   timestamptz not null default now()
 );
 
 create table scenarios (
@@ -115,7 +116,7 @@ create table installments (
   description        text not null,
   installment_amount numeric(12,2) not null,        -- valor de cada parcela
   installments_count int  not null check (installments_count >= 1),  -- parcelas que ESTE registro gera
-  first_cycle_id     uuid references cycles(id) on delete set null,  -- ciclo da 1ª parcela deste registro
+  first_cycle_id     text,                          -- id do ciclo da 1ª parcela (calculado no app)
   category_id        uuid references categories(id) on delete set null,
   account_id         uuid references accounts(id) on delete set null,   -- cartão/banco
   start_number       int not null default 1,        -- nº da 1ª parcela (ex.: 4, quando importada no meio)
@@ -238,12 +239,8 @@ create policy cycle_incomes_access on cycle_incomes
   );
 
 create policy expenses_access on expenses
-  for all using (
-    cycle_id in (select id from cycles where household_id in (select my_household_ids()))
-  )
-  with check (
-    cycle_id in (select id from cycles where household_id in (select my_household_ids()))
-  );
+  for all using (household_id in (select my_household_ids()))
+  with check (household_id in (select my_household_ids()));
 
 create policy scenario_items_access on scenario_items
   for all using (

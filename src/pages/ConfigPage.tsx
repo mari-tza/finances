@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useApp } from '../store/AppContext'
+import { useAuth } from '../auth/AuthContext'
 import { TextField } from '../components/inputs'
 
 export function ConfigPage() {
@@ -12,6 +13,7 @@ export function ConfigPage() {
     deleteAccount,
   } = useApp()
   const [newAccount, setNewAccount] = useState('')
+  const { session, signOut } = useAuth()
 
   return (
     <div className="space-y-4">
@@ -89,9 +91,18 @@ export function ConfigPage() {
         </div>
       </div>
 
-      <p className="px-2 text-center text-xs text-slate-400">
-        Dados de exemplo em memória · Fase 1. Tudo volta ao recarregar a página.
-      </p>
+      <div className="space-y-3 rounded-2xl bg-white p-4 shadow-sm">
+        <h2 className="text-sm font-semibold text-slate-700">Conta</h2>
+        <p className="text-xs text-slate-400">
+          Logada como {session?.user.email}
+        </p>
+        <button
+          onClick={signOut}
+          className="w-full rounded-xl border border-slate-200 py-2.5 text-sm font-medium text-slate-600"
+        >
+          Sair
+        </button>
+      </div>
     </div>
   )
 }

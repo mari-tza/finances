@@ -29,3 +29,6 @@ extratos/
 *.statement.*
 # coloque arquivos de teste de fatura nesta pasta (ignorada):
 /private-test/
+
+# cache de build do TypeScript
+*.tsbuildinfo
