@@ -1,0 +1,31 @@
+# dependências
+node_modules
+# build
+dist
+dist-ssr
+# logs
+*.log
+npm-debug.log*
+# editor
+.idea
+.vscode
+.DS_Store
+# vite / pwa
+dev-dist
+*.local
+# python (template antigo do PyCharm)
+__pycache__/
+*.pyc
+
+# ⚠️ NUNCA versionar extratos/faturas nem dados financeiros sensíveis
+faturas/
+extratos/
+*.ofx
+*.qfx
+*fatura*.pdf
+*extrato*.pdf
+*fatura*.csv
+*extrato*.csv
+*.statement.*
+# coloque arquivos de teste de fatura nesta pasta (ignorada):
+/private-test/
