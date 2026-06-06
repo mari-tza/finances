@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom'
 const tabs = [
   { to: '/', label: 'Início', icon: '🏠', end: true },
   { to: '/ciclo', label: 'Ciclo', icon: '📅', end: false },
+  { to: '/cartao', label: 'Cartão', icon: '💳', end: false },
   { to: '/rendas', label: 'Rendas', icon: '💰', end: false },
   { to: '/fixos', label: 'Fixos', icon: '📌', end: false },
   { to: '/cenarios', label: 'Cenários', icon: '📊', end: false },

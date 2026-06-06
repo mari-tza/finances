@@ -5,6 +5,7 @@ import { Layout } from './components/Layout'
 import { LoginPage } from './pages/LoginPage'
 import { Dashboard } from './pages/Dashboard'
 import { CyclePage } from './pages/CyclePage'
+import { CardPage } from './pages/CardPage'
 import { IncomesPage } from './pages/IncomesPage'
 import { FixedPage } from './pages/FixedPage'
 import { ImportPage } from './pages/ImportPage'
@@ -40,6 +41,7 @@ function Gate() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/ciclo" element={<CyclePage />} />
+            <Route path="/cartao" element={<CardPage />} />
             <Route path="/rendas" element={<IncomesPage />} />
             <Route path="/fixos" element={<FixedPage />} />
             <Route path="/importar" element={<ImportPage />} />

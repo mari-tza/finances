@@ -5,6 +5,11 @@ export interface ParsedTxn {
   dateISO: string
   description: string
   value: number // mantém o sinal do arquivo
+  // Campos opcionais (vêm de um CSV "rico" com cabeçalhos):
+  categoryName?: string
+  accountName?: string
+  installmentCurrent?: number
+  installmentTotal?: number
 }
 
 /** Converte "1.234,56" / "1234,56" / "-150.00" / "R$ 90" em número. */
@@ -175,9 +180,67 @@ export function parseFaturaText(text: string, refDateISO: string): ParsedTxn[] {
   return out
 }
 
+/**
+ * CSV "rico" com cabeçalhos (gerado p/ ex. pelo Claude a partir do PDF):
+ * data;descricao;valor;categoria;parcela;cartao
+ * Usa o nome da categoria/cartão e a parcela (NN/MM) como dicas.
+ */
+export function parseCsvWithHeaders(text: string): ParsedTxn[] {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '')
+  if (lines.length < 2) return []
+
+  const header = lines[0]
+  const delim =
+    (header.match(/;/g)?.length ?? 0) >= (header.match(/,/g)?.length ?? 0)
+      ? ';'
+      : ','
+  const norm = (s: string) =>
+    s.trim().toLowerCase()
+  const cols = header.split(delim).map(norm)
+  const find = (re: RegExp) => cols.findIndex((h) => re.test(h))
+  const iDate = find(/data|date/)
+  const iDesc = find(/descr|estabelec|lan[cç]/)
+  const iVal = find(/valor|value|amount/)
+  const iCat = find(/categor/)
+  const iParc = find(/parcel/)
+  const iAcc = find(/cart|conta|banco|account/)
+  if (iDate < 0 || iVal < 0) return [] // não é o formato esperado
+
+  const out: ParsedTxn[] = []
+  for (let r = 1; r < lines.length; r++) {
+    const c = lines[r].split(delim).map((v) => v.trim().replace(/^"|"$/g, ''))
+    const dateISO = csvDateToISO(c[iDate] ?? '')
+    if (!dateISO) continue
+    let installmentCurrent: number | undefined
+    let installmentTotal: number | undefined
+    if (iParc >= 0 && c[iParc]) {
+      const m = c[iParc].match(/(\d{1,2})\s*\/\s*(\d{1,2})/)
+      if (m) {
+        installmentCurrent = Number(m[1])
+        installmentTotal = Number(m[2])
+      }
+    }
+    out.push({
+      dateISO,
+      description: (iDesc >= 0 ? c[iDesc] : '') || 'Lançamento',
+      value: parseAmount(c[iVal] ?? ''),
+      categoryName: iCat >= 0 ? c[iCat] || undefined : undefined,
+      accountName: iAcc >= 0 ? c[iAcc] || undefined : undefined,
+      installmentCurrent,
+      installmentTotal,
+    })
+  }
+  return out
+}
+
 /** Detecta o formato e devolve as transações. */
 export function parseStatement(text: string): ParsedTxn[] {
   if (/<OFX|<STMTTRN/i.test(text)) return parseOFX(text)
+  const first = (text.split(/\r?\n/)[0] ?? '').toLowerCase()
+  // CSV com cabeçalhos (data;descricao;valor;categoria;...)
+  if (!/\d{2}\/\d{2}/.test(first) && /(descr|valor|categor)/.test(first)) {
+    return parseCsvWithHeaders(text)
+  }
   return parseCSV(text)
 }
 

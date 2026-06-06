@@ -12,7 +12,8 @@ import {
 import { formatBRL, formatDayMonth } from '../utils/format'
 
 export function CyclePage() {
-  const { getCycleExpenses, cycleIncomes, deleteExpense } = useApp()
+  const { getCycleExpenses, cycleIncomes, deleteExpense, toggleFixedPaid } =
+    useApp()
   const cycle = useSelectedCycle()
   const catMap = useCategoryMap()
   const accMap = useAccountMap()
@@ -123,6 +124,11 @@ export function CyclePage() {
                         {e.note}
                       </span>
                     )}
+                    {e.kind === 'cardbill' && (
+                      <span className="shrink-0 rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">
+                        💳 parcial
+                      </span>
+                    )}
                   </p>
                   <p className="text-xs text-slate-400">
                     {isManual ? `${formatDayMonth(e.date)} · ` : ''}
@@ -142,6 +148,14 @@ export function CyclePage() {
                     aria-label="Excluir"
                   >
                     🗑️
+                  </button>
+                ) : e.kind === 'fixed' && e.sourceId ? (
+                  <button
+                    onClick={() => toggleFixedPaid(cycle.id, e.sourceId!)}
+                    className="ml-1 shrink-0 text-base"
+                    title={e.paid ? 'Paga' : 'Marcar como paga'}
+                  >
+                    {e.paid ? '✅' : '⬜'}
                   </button>
                 ) : (
                   <span className="ml-1 w-5 shrink-0" />

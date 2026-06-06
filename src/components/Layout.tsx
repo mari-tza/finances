@@ -6,6 +6,7 @@ import { useApp } from '../store/AppContext'
 const titles: Record<string, string> = {
   '/': 'Início',
   '/ciclo': 'Ciclo',
+  '/cartao': 'Cartão',
   '/rendas': 'Rendas',
   '/fixos': 'Fixos & Parcelas',
   '/patrimonio': 'Patrimônio',

@@ -23,6 +23,7 @@ interface Row {
   description: string
   amount: number
   categoryId: string
+  accountId?: string
   cycleId: string
   cycleLabel: string
   itauCategory?: string
@@ -74,12 +75,30 @@ export function ImportPage() {
     return c ?? selectedCycle
   }
 
-  // ---- Caminho genérico (OFX/CSV/texto colado) ----
+  const norm = (s: string) => s.trim().toLowerCase()
+  const matchCategory = (name?: string): string | undefined => {
+    if (!name) return undefined
+    const n = norm(name)
+    const exact = categories.find((c) => norm(c.name) === n)
+    if (exact) return exact.id
+    const partial = categories.find(
+      (c) => norm(c.name).includes(n) || n.includes(norm(c.name)),
+    )
+    return partial?.id
+  }
+  const matchAccount = (name?: string): string | undefined => {
+    if (!name) return undefined
+    const n = norm(name)
+    return accounts.find((a) => norm(a.name) === n || norm(a.name).includes(n))
+      ?.id
+  }
+
+  // ---- Caminho genérico (OFX/CSV/texto colado/CSV rico) ----
   const buildRowsGeneric = (txns: ParsedTxn[]) => {
     if (txns.length === 0) {
       setRows(null)
       setError(
-        'Não consegui identificar lançamentos. Me cole 3-4 linhas da fatura que eu ajusto o leitor.',
+        'Não consegui identificar lançamentos. Confira o formato do CSV.',
       )
       return
     }
@@ -89,16 +108,26 @@ export function ImportPage() {
     const sign = expenseSign(txns)
     setRows(
       txns.map((t, i) => {
-        const cyc = assignCycle(t.dateISO)
+        const isParcela = t.installmentTotal != null && t.installmentCurrent != null
+        // parcela vai pro ciclo da fatura aberta; à vista vai pela data
+        const cyc = isParcela ? selectedCycle : assignCycle(t.dateISO)
         return {
           id: `row-${i}`,
           include: Math.sign(t.value) === sign,
           date: t.dateISO,
           description: t.description,
           amount: Math.abs(t.value),
-          categoryId: categorize(t.description, undefined, validIds),
+          categoryId:
+            matchCategory(t.categoryName) ??
+            categorize(t.description, undefined, validIds),
+          accountId: matchAccount(t.accountName),
           cycleId: cyc.id,
           cycleLabel: cyc.label,
+          note: isParcela
+            ? `Parcela ${t.installmentCurrent}/${t.installmentTotal}`
+            : undefined,
+          installmentCurrent: t.installmentCurrent,
+          installmentTotal: t.installmentTotal,
         }
       }),
     )
@@ -171,7 +200,9 @@ export function ImportPage() {
     setError('')
     setImportedCount(0)
     setFileName('texto colado')
-    buildRowsItau(pasteText)
+    const txns = parseStatement(pasteText) // detecta CSV (com cabeçalhos) / OFX
+    if (txns.length > 0) buildRowsGeneric(txns)
+    else buildRowsItau(pasteText) // senão, tenta como texto de fatura
   }
 
   const patch = (id: string, p: Partial<Row>) =>
@@ -200,7 +231,7 @@ export function ImportPage() {
             count: total - current + 1, // desta parcela até a última
             firstCycleId: r.cycleId, // ciclo da fatura atual
             categoryId: r.categoryId,
-            accountId: accountId || undefined,
+            accountId: r.accountId || accountId || undefined,
             startNumber: current,
             totalParcelas: total,
           })
@@ -215,7 +246,7 @@ export function ImportPage() {
         amount: r.amount,
         categoryId: r.categoryId,
         date: r.date,
-        accountId: accountId || undefined,
+        accountId: r.accountId || accountId || undefined,
       })
       if (r.hash) hashes.add(r.hash)
     }

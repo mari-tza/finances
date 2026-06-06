@@ -48,6 +48,16 @@ create table accounts (
   name         text not null
 );
 
+-- Fatura parcial do cartão num ciclo (valor atualizado à mão durante o mês).
+create table card_bills (
+  id           uuid primary key default gen_random_uuid(),
+  household_id uuid not null references households(id) on delete cascade,
+  cycle_id     text not null,
+  account_id   uuid references accounts(id) on delete cascade,
+  amount       numeric(12,2) not null,
+  unique (household_id, cycle_id, account_id)
+);
+
 create table cycles (
   id           uuid primary key default gen_random_uuid(),
   household_id uuid not null references households(id) on delete cascade,
@@ -107,6 +117,14 @@ create table fixed_expenses (
   is_investment boolean not null default false,     -- aporte (ex.: consórcio): acumula no patrimônio
   invested_so_far numeric(14,2),                     -- total já aportado até hoje
   asset_id      uuid                                 -- vínculo a um bem (FK adicionada após 'investments')
+);
+
+-- Marca quais custos fixos já foram pagos em cada ciclo (presença = pago).
+create table fixed_payments (
+  household_id     uuid not null references households(id) on delete cascade,
+  cycle_id         text not null,
+  fixed_expense_id uuid not null references fixed_expenses(id) on delete cascade,
+  primary key (household_id, cycle_id, fixed_expense_id)
 );
 
 -- Compras parceladas: geram uma parcela por ciclo a partir do ciclo inicial.
@@ -172,12 +190,14 @@ alter table household_members enable row level security;
 alter table income_sources    enable row level security;
 alter table categories        enable row level security;
 alter table accounts          enable row level security;
+alter table card_bills        enable row level security;
 alter table cycles            enable row level security;
 alter table cycle_incomes     enable row level security;
 alter table expenses          enable row level security;
 alter table scenarios         enable row level security;
 alter table scenario_items    enable row level security;
 alter table fixed_expenses    enable row level security;
+alter table fixed_payments    enable row level security;
 alter table installments      enable row level security;
 alter table investments       enable row level security;
 alter table merchant_rules    enable row level security;
@@ -205,6 +225,10 @@ create policy accounts_access on accounts
   for all using (household_id in (select my_household_ids()))
   with check (household_id in (select my_household_ids()));
 
+create policy card_bills_access on card_bills
+  for all using (household_id in (select my_household_ids()))
+  with check (household_id in (select my_household_ids()));
+
 create policy cycles_access on cycles
   for all using (household_id in (select my_household_ids()))
   with check (household_id in (select my_household_ids()));
@@ -214,6 +238,10 @@ create policy scenarios_access on scenarios
   with check (household_id in (select my_household_ids()));
 
 create policy fixed_expenses_access on fixed_expenses
+  for all using (household_id in (select my_household_ids()))
+  with check (household_id in (select my_household_ids()));
+
+create policy fixed_payments_access on fixed_payments
   for all using (household_id in (select my_household_ids()))
   with check (household_id in (select my_household_ids()));
 

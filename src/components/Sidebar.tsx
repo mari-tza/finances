@@ -4,6 +4,7 @@ import { useApp } from '../store/AppContext'
 const mainLinks = [
   { to: '/', label: 'Início', icon: '🏠', end: true },
   { to: '/ciclo', label: 'Ciclo', icon: '📅', end: false },
+  { to: '/cartao', label: 'Cartão', icon: '💳', end: false },
   { to: '/rendas', label: 'Rendas', icon: '💰', end: false },
   { to: '/fixos', label: 'Fixos & Parcelas', icon: '📌', end: false },
   { to: '/patrimonio', label: 'Patrimônio', icon: '📈', end: false },

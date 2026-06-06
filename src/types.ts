@@ -70,13 +70,25 @@ export interface Expense {
 }
 
 /** De onde vem um gasto exibido em um ciclo. */
-export type ExpenseKind = 'manual' | 'fixed' | 'installment'
+export type ExpenseKind = 'manual' | 'fixed' | 'installment' | 'cardbill'
+
+/** Fatura parcial de um cartão num ciclo (valor atualizado à mão no mês). */
+export interface CardBill {
+  id: string
+  cycleId: string
+  accountId: string
+  amount: number
+}
 
 /** Gasto exibido em um ciclo (manual, fixo ou parcela), já com a origem marcada. */
 export interface DisplayExpense extends Expense {
   kind: ExpenseKind
   /** Texto auxiliar, ex.: "Parcela 3/10". */
   note?: string
+  /** Id da origem (ex.: do custo fixo), para ações como marcar pago. */
+  sourceId?: string
+  /** Para custos fixos: se já foi pago neste ciclo. */
+  paid?: boolean
 }
 
 /** Custo fixo recorrente (template). Entra automaticamente em cada ciclo. */

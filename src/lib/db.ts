@@ -3,6 +3,7 @@
 import { supabase } from './supabase'
 import type {
   Account,
+  CardBill,
   Category,
   Expense,
   FixedExpense,
@@ -44,12 +45,14 @@ export interface LoadedData {
   investments: Investment[]
   scenarios: Scenario[]
   expenses: Expense[]
+  cardBills: CardBill[]
+  fixedPayments: { cycleId: string; fixedExpenseId: string }[]
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export async function loadEverything(hid: string): Promise<LoadedData> {
   const q = (t: string) => supabase.from(t).select('*').eq('household_id', hid)
-  const [hh, cats, accs, incs, fixs, insts, invs, scns, scis, exps] =
+  const [hh, cats, accs, incs, fixs, insts, invs, scns, scis, exps, cbs, fps] =
     await Promise.all([
       supabase.from('households').select('*').eq('id', hid).single(),
       q('categories'),
@@ -61,8 +64,10 @@ export async function loadEverything(hid: string): Promise<LoadedData> {
       q('scenarios'),
       supabase.from('scenario_items').select('*'),
       q('expenses'),
+      q('card_bills'),
+      q('fixed_payments'),
     ])
-  for (const r of [hh, cats, accs, incs, fixs, insts, invs, scns, scis, exps]) {
+  for (const r of [hh, cats, accs, incs, fixs, insts, invs, scns, scis, exps, cbs, fps]) {
     if (r.error) throw r.error
   }
 
@@ -142,6 +147,16 @@ export async function loadEverything(hid: string): Promise<LoadedData> {
       date: e.date,
       accountId: undefIfNull(e.account_id),
       assetId: undefIfNull(e.asset_id),
+    })),
+    cardBills: (cbs.data ?? []).map((b: any) => ({
+      id: b.id,
+      cycleId: b.cycle_id,
+      accountId: b.account_id,
+      amount: Number(b.amount),
+    })),
+    fixedPayments: (fps.data ?? []).map((p: any) => ({
+      cycleId: p.cycle_id,
+      fixedExpenseId: p.fixed_expense_id,
     })),
   }
 }
@@ -234,6 +249,43 @@ function investmentRow(v: Investment, hid?: string) {
     monthly_rate_percent: v.monthlyRatePercent ?? null,
   }
 }
+
+export const setFixedPaid = (
+  hid: string,
+  cycleId: string,
+  fixedExpenseId: string,
+  paid: boolean,
+) =>
+  paid
+    ? run(
+        supabase.from('fixed_payments').insert({
+          household_id: hid,
+          cycle_id: cycleId,
+          fixed_expense_id: fixedExpenseId,
+        }),
+      )
+    : run(
+        supabase
+          .from('fixed_payments')
+          .delete()
+          .eq('household_id', hid)
+          .eq('cycle_id', cycleId)
+          .eq('fixed_expense_id', fixedExpenseId),
+      )
+
+export const insertCardBill = (b: CardBill, hid: string) =>
+  run(
+    supabase.from('card_bills').insert({
+      id: b.id,
+      household_id: hid,
+      cycle_id: b.cycleId,
+      account_id: b.accountId,
+      amount: b.amount,
+    }),
+  )
+export const updateCardBillAmount = (id: string, amount: number) =>
+  run(supabase.from('card_bills').update({ amount }).eq('id', id))
+export const deleteCardBill = (id: string) => del('card_bills', id)
 
 export const insertAccount = (a: Account, hid: string) =>
   run(supabase.from('accounts').insert({ id: a.id, household_id: hid, name: a.name }))

@@ -8,6 +8,7 @@ import {
 } from 'react'
 import type {
   Account,
+  CardBill,
   Category,
   Cycle,
   CycleIncome,
@@ -83,7 +84,11 @@ function buildInitialCycles(closingDay: number): Cycle[] {
   return cycles
 }
 
-function deriveFixed(cycle: Cycle, fixed: FixedExpense[]): DisplayExpense[] {
+function deriveFixed(
+  cycle: Cycle,
+  fixed: FixedExpense[],
+  paidSet: Set<string>,
+): DisplayExpense[] {
   return fixed
     .filter((f) => f.active)
     .map((f) => ({
@@ -94,6 +99,8 @@ function deriveFixed(cycle: Cycle, fixed: FixedExpense[]): DisplayExpense[] {
       categoryId: f.categoryId,
       date: cycle.startDate,
       kind: 'fixed' as const,
+      sourceId: f.id,
+      paid: paidSet.has(`${cycle.id}|${f.id}`),
     }))
 }
 
@@ -147,6 +154,12 @@ interface AppState {
 
   getCycleExpenses: (cycleId: string) => DisplayExpense[]
 
+  cardBills: CardBill[]
+  setCardBill: (cycleId: string, accountId: string, amount: number) => void
+
+  /** Marca/desmarca um custo fixo como pago naquele ciclo. */
+  toggleFixedPaid: (cycleId: string, fixedExpenseId: string) => void
+
   addExpense: (e: Omit<Expense, 'id'>) => void
   deleteExpense: (id: string) => void
 
@@ -194,6 +207,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [investments, setInvestments] = useState<Investment[]>([])
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
+  const [cardBills, setCardBills] = useState<CardBill[]>([])
+  const [paidFixed, setPaidFixed] = useState<Set<string>>(new Set())
   const [selectedCycleId, setSelectedCycleId] = useState<string>('')
 
   // ---- carga inicial ----
@@ -221,6 +236,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setInvestments(data.investments)
         setScenarios(data.scenarios)
         setExpenses(data.expenses)
+        setCardBills(data.cardBills)
+        setPaidFixed(
+          new Set(
+            data.fixedPayments.map((p) => `${p.cycleId}|${p.fixedExpenseId}`),
+          ),
+        )
         setLoading(false)
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
@@ -274,11 +295,63 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const manual: DisplayExpense[] = expenses
         .filter((e) => e.cycleId === cycleId)
         .map((e) => ({ ...e, kind: 'manual' }))
+      const bills: DisplayExpense[] = cardBills
+        .filter((b) => b.cycleId === cycleId)
+        .map((b) => ({
+          id: `${cycleId}-cardbill-${b.id}`,
+          cycleId,
+          description: `${accounts.find((a) => a.id === b.accountId)?.name ?? 'Cartão'} (fatura parcial)`,
+          amount: b.amount,
+          categoryId: 'cat-outros',
+          date: cycle.startDate,
+          accountId: b.accountId,
+          kind: 'cardbill' as const,
+        }))
       return [
         ...manual,
-        ...deriveFixed(cycle, fixedExpenses),
+        ...deriveFixed(cycle, fixedExpenses, paidFixed),
         ...deriveInstallments(cycle, idx, cycles, installments),
+        ...bills,
       ]
+    }
+
+    const toggleFixedPaid = (cycleId: string, fixedExpenseId: string) => {
+      const key = `${cycleId}|${fixedExpenseId}`
+      const willPay = !paidFixed.has(key)
+      setPaidFixed((prev) => {
+        const next = new Set(prev)
+        if (willPay) next.add(key)
+        else next.delete(key)
+        return next
+      })
+      persist(db.setFixedPaid(hid, cycleId, fixedExpenseId, willPay))
+    }
+
+    const setCardBill = (
+      cycleId: string,
+      accountId: string,
+      amount: number,
+    ) => {
+      const existing = cardBills.find(
+        (b) => b.cycleId === cycleId && b.accountId === accountId,
+      )
+      if (amount <= 0) {
+        if (existing) {
+          setCardBills((p) => p.filter((b) => b.id !== existing.id))
+          persist(db.deleteCardBill(existing.id))
+        }
+        return
+      }
+      if (existing) {
+        setCardBills((p) =>
+          p.map((b) => (b.id === existing.id ? { ...b, amount } : b)),
+        )
+        persist(db.updateCardBillAmount(existing.id, amount))
+      } else {
+        const row: CardBill = { id: uid(), cycleId, accountId, amount }
+        setCardBills((p) => [...p, row])
+        persist(db.insertCardBill(row, hid))
+      }
     }
 
     const addExpense = (e: Omit<Expense, 'id'>) => {
@@ -419,6 +492,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       goPrevCycle,
       goNextCycle,
       getCycleExpenses,
+      cardBills,
+      setCardBill,
+      toggleFixedPaid,
       addExpense,
       deleteExpense,
       addFixedExpense,
@@ -455,6 +531,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     installments,
     investments,
     scenarios,
+    cardBills,
+    paidFixed,
     selectedCycleId,
   ])
 
