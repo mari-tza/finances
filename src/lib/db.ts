@@ -3,6 +3,7 @@
 import { supabase } from './supabase'
 import type {
   Account,
+  AssetOutlay,
   CardBill,
   Category,
   Expense,
@@ -47,12 +48,13 @@ export interface LoadedData {
   expenses: Expense[]
   cardBills: CardBill[]
   fixedPayments: { cycleId: string; fixedExpenseId: string }[]
+  assetOutlays: AssetOutlay[]
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export async function loadEverything(hid: string): Promise<LoadedData> {
   const q = (t: string) => supabase.from(t).select('*').eq('household_id', hid)
-  const [hh, cats, accs, incs, fixs, insts, invs, scns, scis, exps, cbs, fps] =
+  const [hh, cats, accs, incs, fixs, insts, invs, scns, scis, exps, cbs, fps, aos] =
     await Promise.all([
       supabase.from('households').select('*').eq('id', hid).single(),
       q('categories'),
@@ -66,8 +68,9 @@ export async function loadEverything(hid: string): Promise<LoadedData> {
       q('expenses'),
       q('card_bills'),
       q('fixed_payments'),
+      q('asset_outlays'),
     ])
-  for (const r of [hh, cats, accs, incs, fixs, insts, invs, scns, scis, exps, cbs, fps]) {
+  for (const r of [hh, cats, accs, incs, fixs, insts, invs, scns, scis, exps, cbs, fps, aos]) {
     if (r.error) throw r.error
   }
 
@@ -131,6 +134,9 @@ export async function loadEverything(hid: string): Promise<LoadedData> {
       kind: v.kind,
       balance: Number(v.balance),
       monthlyRatePercent: undefIfNull(v.monthly_rate_percent),
+      monthlyCost: undefIfNull(v.monthly_cost),
+      startDate: undefIfNull(v.start_date),
+      endDate: undefIfNull(v.end_date),
     })),
     scenarios: (scns.data ?? []).map((s: any) => ({
       id: s.id,
@@ -157,6 +163,12 @@ export async function loadEverything(hid: string): Promise<LoadedData> {
     fixedPayments: (fps.data ?? []).map((p: any) => ({
       cycleId: p.cycle_id,
       fixedExpenseId: p.fixed_expense_id,
+    })),
+    assetOutlays: (aos.data ?? []).map((o: any) => ({
+      id: o.id,
+      cycleId: o.cycle_id,
+      assetId: o.asset_id,
+      amount: Number(o.amount),
     })),
   }
 }
@@ -247,8 +259,25 @@ function investmentRow(v: Investment, hid?: string) {
     kind: v.kind,
     balance: v.balance,
     monthly_rate_percent: v.monthlyRatePercent ?? null,
+    monthly_cost: v.monthlyCost ?? null,
+    start_date: v.startDate ?? null,
+    end_date: v.endDate ?? null,
   }
 }
+
+export const insertAssetOutlay = (o: AssetOutlay, hid: string) =>
+  run(
+    supabase.from('asset_outlays').insert({
+      id: o.id,
+      household_id: hid,
+      cycle_id: o.cycleId,
+      asset_id: o.assetId,
+      amount: o.amount,
+    }),
+  )
+export const updateAssetOutlayAmount = (id: string, amount: number) =>
+  run(supabase.from('asset_outlays').update({ amount }).eq('id', id))
+export const deleteAssetOutlay = (id: string) => del('asset_outlays', id)
 
 export const setFixedPaid = (
   hid: string,

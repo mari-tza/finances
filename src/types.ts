@@ -70,7 +70,20 @@ export interface Expense {
 }
 
 /** De onde vem um gasto exibido em um ciclo. */
-export type ExpenseKind = 'manual' | 'fixed' | 'installment' | 'cardbill'
+export type ExpenseKind =
+  | 'manual'
+  | 'fixed'
+  | 'installment'
+  | 'cardbill'
+  | 'outlay'
+
+/** Quanto foi investido num bem/empreendimento num ciclo (preenchido à mão). */
+export interface AssetOutlay {
+  id: string
+  cycleId: string
+  assetId: string
+  amount: number
+}
 
 /** Fatura parcial de um cartão num ciclo (valor atualizado à mão no mês). */
 export interface CardBill {
@@ -89,6 +102,8 @@ export interface DisplayExpense extends Expense {
   sourceId?: string
   /** Para custos fixos: se já foi pago neste ciclo. */
   paid?: boolean
+  /** True se é um aporte (consórcio) — conta como "Investido", não "Gasto". */
+  investment?: boolean
 }
 
 /** Custo fixo recorrente (template). Entra automaticamente em cada ciclo. */
@@ -149,6 +164,11 @@ export interface Investment {
   balance: number
   /** Rendimento em % ao mês (só 'yield'). */
   monthlyRatePercent?: number
+  /** Custo mensal base do empreendimento (só 'bem'): replica em todo ciclo. */
+  monthlyCost?: number
+  /** Datas do empreendimento (só 'bem'), ISO yyyy-mm-dd, opcionais. */
+  startDate?: string
+  endDate?: string
 }
 
 /** Item de um cenário de projeção (renda extra ou gasto estimado). */

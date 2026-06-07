@@ -20,8 +20,7 @@ const ACCOUNT_COLORS = [
 ]
 
 export function Dashboard() {
-  const { getCycleExpenses, cycleIncomes, accounts, investments, fixedExpenses } =
-    useApp()
+  const { getCycleExpenses, cycleIncomes, accounts, investments } = useApp()
   const cycle = useSelectedCycle()
   const catMap = useCategoryMap()
 
@@ -33,7 +32,11 @@ export function Dashboard() {
 
   const totalIncome = incomes.reduce((s, i) => s + i.amount, 0)
   const totalExpense = cycleExpenses.reduce((s, e) => s + e.amount, 0)
-  const balance = totalIncome - totalExpense
+  const investido = cycleExpenses
+    .filter((e) => e.investment)
+    .reduce((s, e) => s + e.amount, 0)
+  const gastos = totalExpense - investido // consumo (sem aportes)
+  const balance = totalIncome - totalExpense // sobra = renda − gastos − investido
 
   // Gasto por cartão/banco
   const byAccount = useMemo(() => {
@@ -54,11 +57,8 @@ export function Dashboard() {
       .map((r, idx) => ({ ...r, color: ACCOUNT_COLORS[idx % ACCOUNT_COLORS.length] }))
   }, [cycleExpenses, accounts])
 
-  const patrimonio =
-    investments.reduce((s, i) => s + i.balance, 0) +
-    fixedExpenses
-      .filter((f) => f.isInvestment && f.active)
-      .reduce((s, f) => s + (f.investedSoFar ?? 0), 0)
+  // Patrimônio = investimentos que rendem + bens (consórcio fica de fora).
+  const patrimonio = investments.reduce((s, i) => s + i.balance, 0)
   const rendimentoMes = investments.reduce(
     (s, i) => s + i.balance * ((i.monthlyRatePercent ?? 0) / 100),
     0,
@@ -67,6 +67,7 @@ export function Dashboard() {
   const byCategory: CategoryDatum[] = useMemo(() => {
     const map = new Map<string, number>()
     for (const e of cycleExpenses) {
+      if (e.investment) continue // aporte é "investido", não gasto de consumo
       map.set(e.categoryId, (map.get(e.categoryId) ?? 0) + e.amount)
     }
     return [...map.entries()]
@@ -88,8 +89,17 @@ export function Dashboard() {
 
       <div className="grid grid-cols-2 gap-3">
         <StatCard label="Renda do ciclo" value={totalIncome} tone="accent" />
-        <StatCard label="Total gasto" value={totalExpense} tone="negative" />
+        <StatCard label="Gastos" value={gastos} tone="negative" />
       </div>
+
+      {investido > 0 && (
+        <StatCard
+          label="Investido (aportes)"
+          value={investido}
+          tone="accent"
+          hint="poupança — sai do caixa e vira patrimônio"
+        />
+      )}
 
       <StatCard
         label="Saldo restante"
@@ -133,7 +143,7 @@ export function Dashboard() {
             {formatBRL(patrimonio)}
           </p>
           <p className="mt-0.5 text-xs text-slate-400">
-            Rende ~{formatBRL(rendimentoMes)}/mês · inclui aportes e bens
+            Rende ~{formatBRL(rendimentoMes)}/mês · investimentos e bens
           </p>
         </div>
         <span className="text-slate-300">›</span>

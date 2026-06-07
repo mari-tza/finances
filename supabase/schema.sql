@@ -149,7 +149,20 @@ create table investments (
   name                text not null,
   kind                text not null default 'yield' check (kind in ('yield','bem')),
   balance             numeric(14,2) not null,       -- 'yield': saldo · 'bem': valor
-  monthly_rate_percent numeric(6,3)                 -- rendimento % ao mês (só 'yield')
+  monthly_rate_percent numeric(6,3),                -- rendimento % ao mês (só 'yield')
+  monthly_cost        numeric(12,2),                 -- custo mensal base do empreendimento (só 'bem')
+  start_date          date,                          -- empreendimento (só 'bem')
+  end_date            date
+);
+
+-- Quanto foi investido num bem por ciclo (total do mês, preenchido à mão).
+create table asset_outlays (
+  id           uuid primary key default gen_random_uuid(),
+  household_id uuid not null references households(id) on delete cascade,
+  cycle_id     text not null,
+  asset_id     uuid not null references investments(id) on delete cascade,
+  amount       numeric(12,2) not null,
+  unique (household_id, cycle_id, asset_id)
 );
 
 -- Vínculos de custos a um bem (criados aqui pois referenciam 'investments').
@@ -200,6 +213,7 @@ alter table fixed_expenses    enable row level security;
 alter table fixed_payments    enable row level security;
 alter table installments      enable row level security;
 alter table investments       enable row level security;
+alter table asset_outlays     enable row level security;
 alter table merchant_rules    enable row level security;
 
 -- households: vê/edita as casas das quais é membro
@@ -250,6 +264,10 @@ create policy installments_access on installments
   with check (household_id in (select my_household_ids()));
 
 create policy investments_access on investments
+  for all using (household_id in (select my_household_ids()))
+  with check (household_id in (select my_household_ids()));
+
+create policy asset_outlays_access on asset_outlays
   for all using (household_id in (select my_household_ids()))
   with check (household_id in (select my_household_ids()));
 

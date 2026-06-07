@@ -28,6 +28,10 @@ export function CyclePage() {
 
   const totalIncome = incomes.reduce((s, i) => s + i.amount, 0)
   const totalExpense = cycleExpenses.reduce((s, e) => s + e.amount, 0)
+  const investido = cycleExpenses
+    .filter((e) => e.investment)
+    .reduce((s, e) => s + e.amount, 0)
+  const gastos = totalExpense - investido
 
   return (
     <div className="space-y-4">
@@ -72,7 +76,7 @@ export function CyclePage() {
                       {i.taxPercent ? ` (imp. ${i.taxPercent}%` : ''}
                       {i.taxPercent && i.tithePercent ? ', ' : ''}
                       {!i.taxPercent && i.tithePercent ? ' (' : ''}
-                      {i.tithePercent ? `díz. ${i.tithePercent}%` : ''}
+                      {i.tithePercent ? `desc. ${i.tithePercent}%` : ''}
                       {i.taxPercent || i.tithePercent ? ')' : ''}
                     </p>
                   )}
@@ -96,7 +100,12 @@ export function CyclePage() {
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-slate-700">Gastos</h2>
           <span className="text-sm font-bold tabular-nums text-rose-600">
-            {formatBRL(totalExpense)}
+            {formatBRL(gastos)}
+            {investido > 0 && (
+              <span className="ml-2 font-medium text-teal-700">
+                + {formatBRL(investido)} investido
+              </span>
+            )}
           </span>
         </div>
         <ul className="divide-y divide-slate-100">
@@ -114,7 +123,12 @@ export function CyclePage() {
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-1.5 text-sm text-slate-800">
                     <span className="truncate">{e.description}</span>
-                    {e.kind === 'fixed' && (
+                    {e.kind === 'fixed' && e.investment && (
+                      <span className="shrink-0 rounded-full bg-teal-100 px-1.5 py-0.5 text-[10px] font-medium text-teal-700">
+                        Investido
+                      </span>
+                    )}
+                    {e.kind === 'fixed' && !e.investment && (
                       <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
                         Fixo
                       </span>

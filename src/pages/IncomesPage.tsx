@@ -65,8 +65,8 @@ export function IncomesPage() {
                   <p className="mt-0.5 text-xs text-slate-400">
                     Bruto {formatBRL(b.gross)}
                     {s.taxPercent ? ` · imposto ${s.taxPercent}%` : ''}
-                    {s.discount ? ` · desconto ${formatBRL(s.discount)}` : ''}
-                    {s.tithePercent ? ` · dízimo ${s.tithePercent}%` : ''}
+                    {s.discount ? ` · desc. fixo ${formatBRL(s.discount)}` : ''}
+                    {s.tithePercent ? ` · descontos ${s.tithePercent}%` : ''}
                   </p>
                 )}
               </div>
@@ -165,7 +165,7 @@ function IncomeForm({
           placeholder="ex.: 11"
         />
         <TextField
-          label="Dízimo (%) — opcional"
+          label="Descontos (%) — opcional"
           type="number"
           value={titheText}
           onChange={setTitheText}
@@ -174,7 +174,7 @@ function IncomeForm({
       </div>
 
       <MoneyField
-        label="Desconto (R$) — opcional · após imposto, antes do dízimo"
+        label="Desconto fixo (R$) — opcional"
         value={discount}
         onChange={setDiscount}
       />
@@ -193,13 +193,13 @@ function IncomeForm({
           ) : null}
           {discount > 0 ? (
             <div className="flex justify-between text-rose-500">
-              <span>− Desconto</span>
+              <span>− Desconto fixo</span>
               <span className="tabular-nums">−{formatBRL(preview.discount)}</span>
             </div>
           ) : null}
           {tithePercent ? (
             <div className="flex justify-between text-rose-500">
-              <span>− Dízimo ({tithePercent}% após imposto e desconto)</span>
+              <span>− Descontos ({tithePercent}%)</span>
               <span className="tabular-nums">−{formatBRL(preview.tithe)}</span>
             </div>
           ) : null}

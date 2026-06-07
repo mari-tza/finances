@@ -8,6 +8,7 @@ import {
 } from 'react'
 import type {
   Account,
+  AssetOutlay,
   CardBill,
   Category,
   Cycle,
@@ -101,6 +102,7 @@ function deriveFixed(
       kind: 'fixed' as const,
       sourceId: f.id,
       paid: paidSet.has(`${cycle.id}|${f.id}`),
+      investment: f.isInvestment === true,
     }))
 }
 
@@ -157,6 +159,10 @@ interface AppState {
   cardBills: CardBill[]
   setCardBill: (cycleId: string, accountId: string, amount: number) => void
 
+  /** Gasto/aporte de um bem (empreendimento) num ciclo. */
+  assetOutlays: AssetOutlay[]
+  setAssetOutlay: (cycleId: string, assetId: string, amount: number) => void
+
   /** Marca/desmarca um custo fixo como pago naquele ciclo. */
   toggleFixedPaid: (cycleId: string, fixedExpenseId: string) => void
 
@@ -208,6 +214,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [cardBills, setCardBills] = useState<CardBill[]>([])
+  const [assetOutlays, setAssetOutlays] = useState<AssetOutlay[]>([])
   const [paidFixed, setPaidFixed] = useState<Set<string>>(new Set())
   const [selectedCycleId, setSelectedCycleId] = useState<string>('')
 
@@ -237,6 +244,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setScenarios(data.scenarios)
         setExpenses(data.expenses)
         setCardBills(data.cardBills)
+        setAssetOutlays(data.assetOutlays)
         setPaidFixed(
           new Set(
             data.fixedPayments.map((p) => `${p.cycleId}|${p.fixedExpenseId}`),
@@ -302,17 +310,67 @@ export function AppProvider({ children }: { children: ReactNode }) {
           cycleId,
           description: `${accounts.find((a) => a.id === b.accountId)?.name ?? 'Cartão'} (fatura parcial)`,
           amount: b.amount,
-          categoryId: 'cat-outros',
+          categoryId: 'cat-card-proj', // categoria virtual "Projeção de cartões"
           date: cycle.startDate,
           accountId: b.accountId,
           kind: 'cardbill' as const,
+        }))
+      // Empreendimentos (bens): custo base mensal (replica) + adicional do ciclo
+      const empreendimentos: DisplayExpense[] = investments
+        .filter((i) => i.kind === 'bem')
+        .map((b) => {
+          const base = b.monthlyCost ?? 0
+          const add =
+            assetOutlays.find(
+              (o) => o.cycleId === cycleId && o.assetId === b.id,
+            )?.amount ?? 0
+          return { b, total: base + add }
+        })
+        .filter((x) => x.total > 0)
+        .map((x) => ({
+          id: `${cycleId}-emp-${x.b.id}`,
+          cycleId,
+          description: x.b.name,
+          amount: x.total,
+          categoryId: 'cat-empreendimento',
+          date: cycle.startDate,
+          kind: 'outlay' as const,
+          investment: true, // entra como "Investido", não gasto
         }))
       return [
         ...manual,
         ...deriveFixed(cycle, fixedExpenses, paidFixed),
         ...deriveInstallments(cycle, idx, cycles, installments),
         ...bills,
+        ...empreendimentos,
       ]
+    }
+
+    const setAssetOutlay = (
+      cycleId: string,
+      assetId: string,
+      amount: number,
+    ) => {
+      const existing = assetOutlays.find(
+        (o) => o.cycleId === cycleId && o.assetId === assetId,
+      )
+      if (amount <= 0) {
+        if (existing) {
+          setAssetOutlays((p) => p.filter((o) => o.id !== existing.id))
+          persist(db.deleteAssetOutlay(existing.id))
+        }
+        return
+      }
+      if (existing) {
+        setAssetOutlays((p) =>
+          p.map((o) => (o.id === existing.id ? { ...o, amount } : o)),
+        )
+        persist(db.updateAssetOutlayAmount(existing.id, amount))
+      } else {
+        const row: AssetOutlay = { id: uid(), cycleId, assetId, amount }
+        setAssetOutlays((p) => [...p, row])
+        persist(db.insertAssetOutlay(row, hid))
+      }
     }
 
     const toggleFixedPaid = (cycleId: string, fixedExpenseId: string) => {
@@ -494,6 +552,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       getCycleExpenses,
       cardBills,
       setCardBill,
+      assetOutlays,
+      setAssetOutlay,
       toggleFixedPaid,
       addExpense,
       deleteExpense,
@@ -532,6 +592,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     investments,
     scenarios,
     cardBills,
+    assetOutlays,
     paidFixed,
     selectedCycleId,
   ])
@@ -568,12 +629,19 @@ export function useSelectedCycle(): Cycle {
   return cycles.find((c) => c.id === selectedCycleId) ?? cycles[0]
 }
 
+// Categorias virtuais (não ficam no banco): projeção de cartão e empreendimentos.
+const VIRTUAL_CATEGORIES: Category[] = [
+  { id: 'cat-card-proj', name: 'Projeção de cartões', color: '#0ea5e9', icon: '💳' },
+  { id: 'cat-empreendimento', name: 'Empreendimentos', color: '#0d9488', icon: '🏗️' },
+]
+
 export function useCategoryMap(): Record<string, Category> {
   const { categories } = useApp()
-  return useMemo(
-    () => Object.fromEntries(categories.map((c) => [c.id, c])),
-    [categories],
-  )
+  return useMemo(() => {
+    const m = Object.fromEntries(categories.map((c) => [c.id, c]))
+    for (const v of VIRTUAL_CATEGORIES) m[v.id] = v
+    return m
+  }, [categories])
 }
 
 export function useAccountMap(): Record<string, Account> {

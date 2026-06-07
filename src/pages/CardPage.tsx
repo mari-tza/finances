@@ -5,8 +5,9 @@ import { MoneyField, PrimaryButton } from '../components/inputs'
 import { formatBRL } from '../utils/format'
 
 export function CardPage() {
-  const { accounts, cardBills, setCardBill } = useApp()
+  const { accounts, cardBills, setCardBill, addAccount } = useApp()
   const cycle = useSelectedCycle()
+  const [newCard, setNewCard] = useState('')
 
   const billFor = (accountId: string) =>
     cardBills.find((b) => b.cycleId === cycle.id && b.accountId === accountId)
@@ -44,9 +45,30 @@ export function CardPage() {
 
       {accounts.length === 0 && (
         <p className="rounded-2xl bg-white p-4 text-center text-sm text-slate-400 shadow-sm">
-          Cadastre seus cartões em Configurações primeiro.
+          Adicione um cartão abaixo para começar.
         </p>
       )}
+
+      {/* Adicionar cartão */}
+      <div className="flex gap-2">
+        <input
+          value={newCard}
+          onChange={(e) => setNewCard(e.target.value)}
+          placeholder="Novo cartão (ex.: Nubank)"
+          className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-teal-500"
+        />
+        <button
+          onClick={() => {
+            if (newCard.trim()) {
+              addAccount(newCard.trim())
+              setNewCard('')
+            }
+          }}
+          className="rounded-xl bg-teal-600 px-4 text-sm font-semibold text-white"
+        >
+          + Cartão
+        </button>
+      </div>
     </div>
   )
 }
