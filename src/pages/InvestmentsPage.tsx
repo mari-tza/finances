@@ -433,9 +433,9 @@ function BemDetail({
           </p>
         </div>
         <div className="rounded-xl bg-teal-50 p-2">
-          <p className="text-[11px] text-slate-400">Neste ciclo (base + adic.)</p>
+          <p className="text-[11px] text-slate-400">Total adicionais</p>
           <p className="text-sm font-bold tabular-nums text-teal-700">
-            {formatBRL(monthlyCost + outlay)}
+            {formatBRL(invested)}
           </p>
         </div>
       </div>
@@ -485,6 +485,13 @@ function BemDetail({
           value={outlay}
           onChange={setOutlay}
         />
+        <p className="text-center text-xs text-slate-500">
+          Neste ciclo: {formatBRL(monthlyCost)} base + {formatBRL(outlay)}{' '}
+          adicional ={' '}
+          <span className="font-semibold text-teal-700">
+            {formatBRL(monthlyCost + outlay)}
+          </span>
+        </p>
         <button
           onClick={() => onSetOutlay(cycleId, outlay)}
           className="w-full rounded-xl bg-slate-800 py-2.5 text-sm font-medium text-white"

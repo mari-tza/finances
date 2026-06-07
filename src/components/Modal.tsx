@@ -15,20 +15,20 @@ export function Modal({ open, title, onClose, children }: ModalProps) {
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-t-3xl bg-white p-5 shadow-xl safe-bottom sm:rounded-3xl"
+        className="flex max-h-[88vh] w-full max-w-md flex-col rounded-t-3xl bg-white shadow-xl sm:max-h-[90vh] sm:rounded-3xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
           <button
             onClick={onClose}
-            className="grid h-8 w-8 place-items-center rounded-full bg-slate-100 text-slate-500"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500"
             aria-label="Fechar"
           >
             ✕
           </button>
         </div>
-        {children}
+        <div className="overflow-y-auto px-5 py-4 safe-bottom">{children}</div>
       </div>
     </div>
   )
